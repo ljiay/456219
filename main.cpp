@@ -1,10 +1,13 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
+#include <string.h>
 #include <malloc.h>
 #include <opencv2/opencv.hpp>
 #include "opencv2/highgui/highgui.hpp"
 #include <math.h>
 #define INVALID_PIXEL 0
+#define min(a,b) a<b?a:b
+#define max(a,b) a>b?a:b
 using namespace cv;
 
 typedef struct Image {
@@ -15,7 +18,7 @@ typedef struct Image {
 }Image;
 
 typedef struct AggrCost {
-	
+
 };
 
 
@@ -91,7 +94,7 @@ void computeCost(unsigned char* cost, int minDisparity, int maxDisparity) {
 	const int pixelNum = height * width;	//像素数
 
 	//census变换
-	unsigned int* censusLeft = (unsigned int*)malloc(sizeof(unsigned int)  * pixelNum);
+	unsigned int* censusLeft = (unsigned int*)malloc(sizeof(unsigned int) * pixelNum);
 	unsigned int* censusRight = (unsigned int*)malloc(sizeof(unsigned int) * pixelNum);
 	if (censusLeft == NULL || censusRight == NULL) {
 		printf("Error in calculateCost: Malloc Failure\n");
@@ -133,88 +136,43 @@ void costAggregationRow(unsigned char* initCost, unsigned char* aggrCost, int mi
 	const int width = image.width;
 	const int height = image.height;
 	const unsigned char* leftGray = image.leftGray;
-	const unsigned char* rightGray = image.rightGray;
 	int dispRange = maxDisparity - minDisparity;
-	//int P2 = initP2;
 
+	for (int i = 0; i < height; i++)
+	{
+		unsigned char* initCostNowPos = leftToRight ? initCost + i * width * dispRange :
+			initCost + ((i + 1) * width - 1) * dispRange;
+		unsigned char* aggrCostNowPos = leftToRight ? aggrCost + i * width * dispRange :
+			aggrCost + ((i + 1) * width - 1) * dispRange;
+		unsigned char* imgNowPos = leftToRight ? image.leftGray + i * width : image.leftGray + (i + 1) * width - 1;
+		unsigned char* aggrCostLastPos, * imgLastPos;
 
-	for (int i = 0; i < height; ++i) {
-		//initCost和aggrCost大小均为w*h*d
-		//w、d平面左下角元素的角标为：width*dispRange*i
-		//w、d平面右下角元素的角标为：width*dispRange*(i+1)-dispRange
-		int colHeadIndex = leftToRight ? (width * dispRange * i) : (width * dispRange * (i + 1) - dispRange);
-		int pixelIndex = leftToRight ? (width * i) : (width * (i + 1) - 1);
-
-		//第一个像素的聚合代价值等于它的初始代价值
-		int lastPixelMinCost = 0xff;
-		for (int d = 0; d < dispRange; ++d) {
-			aggrCost[colHeadIndex + d] = initCost[colHeadIndex + d];
-			if (initCost[colHeadIndex + d] < lastPixelMinCost) {
-				lastPixelMinCost = initCost[colHeadIndex + d];
-			}
-		}
+		memcpy(aggrCostNowPos, initCostNowPos, dispRange * sizeof(unsigned char));
 		
-		int lastGray = image.leftGray[pixelIndex];
-		int lastColHeadIndex = colHeadIndex;
-		//计算第二个像素的角标
-		colHeadIndex += direction * dispRange;
-		pixelIndex += direction;
+		unsigned char minAggrCostOfLastPos = 255;
+		for (int d = 0; d < dispRange; d++)
+			minAggrCostOfLastPos=min(minAggrCostOfLastPos,aggrCostNowPos[d]);
 
+		for (int j = 1; j < width; j++)
+		{
+			aggrCostLastPos = aggrCostNowPos;
+			imgLastPos = imgNowPos;
+			initCostNowPos += direction * dispRange;
+			aggrCostNowPos += direction * dispRange;
+			imgNowPos += direction;
 
-		//从第二个像素开始聚合
-		for (int j = 1; j < width; ++j) {
-			int nowGray = image.leftGray[pixelIndex];
-			int P2 = initP2;
-			if (lastGray != nowGray) {
-				int P2 = initP2 / abs(lastGray - nowGray);
+			unsigned char minAggrCostOfNowPos = 255;
+			for (int d = 0; d < dispRange; d++)
+			{
+				int l1 = aggrCostLastPos[d];
+				int l2 = d == 0 ? 255 : aggrCostLastPos[d - 1] + P1;
+				int l3 = d == dispRange - 1 ? 255 : aggrCostLastPos[d + 1] + P1;
+				int l4 = minAggrCostOfLastPos + initP2 / (abs(*imgNowPos - *imgLastPos) + 1);
+				aggrCostNowPos[d] = initCostNowPos[d] + min(min(l1, l2), min(l3, l4)) - minAggrCostOfLastPos;
+				minAggrCostOfNowPos = min(minAggrCostOfNowPos, aggrCostNowPos[d]);
 			}
-			
-			int nowPixelMinCost;		//记录当前像素最小代价
-			for (int d = 0; d < dispRange; ++d) {
-				int cost = initCost[colHeadIndex + d];
-				int lr[4];
-				lr[0] = aggrCost[lastColHeadIndex + d];
-				if (d == 0) {
-					lr[1] = 0xff + P1;
-				}
-				else {
-					lr[1] = aggrCost[lastColHeadIndex + d - 1] + P1;
-				}
-				if (d == dispRange - 1) {
-					lr[2] = 0xff + P1;
-				}
-				else {
-					lr[2] = aggrCost[lastColHeadIndex + d + 1] + P1;
-				}
-				lr[3] = lastPixelMinCost + P2;
-				
-				//取lr的最小值
-				int minLr = lr[0];
-				for (int i = 1; i < 4; ++i) {
-					if (minLr > lr[i]) {
-						minLr = lr[i];
-					}
-				}
-
-				aggrCost[colHeadIndex + d] = cost + minLr - lastPixelMinCost;
-
-				if (d == 0) {
-					nowPixelMinCost = aggrCost[colHeadIndex + d];
-				}
-				else if (aggrCost[colHeadIndex + d] < nowPixelMinCost) {
-					nowPixelMinCost = aggrCost[colHeadIndex + d];
-				}
-			}
-
-			lastPixelMinCost = nowPixelMinCost;
-
-			//计算下一个像素的角标
-			colHeadIndex += direction * dispRange;
-			pixelIndex += dispRange;
-			//更新上一个像素的灰度值
-			lastGray = nowGray;
+			minAggrCostOfLastPos = minAggrCostOfNowPos;
 		}
-
 	}
 }
 
@@ -235,7 +193,7 @@ void computeDisparity(unsigned short* cost, unsigned short* disparity, int minDi
 			unsigned int max = 0;
 			unsigned int bestDisparity = 0;
 			for (int m = minDisparity; m < maxDisparity; ++m) {
-				int index = dispRange*(i * width + j ) + (m - minDisparity);
+				int index = dispRange * (i * width + j) + (m - minDisparity);
 				if (cost[index] < min) {
 					min = cost[index];
 					bestDisparity = m;
@@ -244,7 +202,7 @@ void computeDisparity(unsigned short* cost, unsigned short* disparity, int minDi
 					max = cost[index];
 				}
 			}
-			
+
 			//如果视差范围内的所有代价值均相同，则该像素无效
 			if (max == min) {
 				disparity[i * width + j] = INVALID_PIXEL;
@@ -257,10 +215,10 @@ void computeDisparity(unsigned short* cost, unsigned short* disparity, int minDi
 }
 
 //加载图片
-int loadImage(const char* leftImagePath,const char* rightImagePath) {
+int loadImage(const char* leftImagePath, const char* rightImagePath) {
 	Mat imgLeft = imread(leftImagePath, IMREAD_GRAYSCALE);
 	Mat imgRight = imread(rightImagePath, IMREAD_GRAYSCALE);
-	
+
 	if (imgLeft.empty() || imgRight.empty()) {
 		printf("Error in loadImage: Failed to load images\n");
 		return -1;
@@ -343,14 +301,14 @@ int main() {
 	//代价计算
 	computeCost(initCost, minDisparity, maxDisparity);
 	//代价聚合
-	//costAggregationRow(initCost, aggrCost_1, minDisparity, maxDisparity, 2, 100, true);
-	//costAggregationRow(initCost, aggrCost_2, minDisparity, maxDisparity, 2, 100, false);
+	//costAggregationRow(initCost, aggrCost_1, minDisparity, maxDisparity, 10, 150, true);
+	//costAggregationRow(initCost, aggrCost_2, minDisparity, maxDisparity, 10, 150, false);
 	int size = (maxDisparity - minDisparity) * image.width * image.height;
 	for (int i = 0; i < size; ++i) {
 		//aggrCost[i] = aggrCost_1[i] +aggrCost_2[i];
 		aggrCost[i] = initCost[i];
 	}
-	
+
 
 	//视差计算
 	computeDisparity(aggrCost, disparity, minDisparity, maxDisparity);
