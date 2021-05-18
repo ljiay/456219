@@ -161,13 +161,60 @@ void costAggregationRow(unsigned char* initCost, unsigned char* aggrCost, int mi
 			aggrCostNowPos += direction * dispRange;
 			imgNowPos += direction;
 
+			int P2 = *imgNowPos == *imgLastPos ? initP2 : initP2 / abs(*imgNowPos - *imgLastPos);
 			unsigned char minAggrCostOfNowPos = 255;
 			for (int d = 0; d < dispRange; d++)
 			{
 				int l1 = aggrCostLastPos[d];
-				int l2 = d == 0 ? 255 : aggrCostLastPos[d - 1] + P1;
-				int l3 = d == dispRange - 1 ? 255 : aggrCostLastPos[d + 1] + P1;
-				int l4 = minAggrCostOfLastPos + initP2 / (abs(*imgNowPos - *imgLastPos) + 1);
+				int l2 = d == 0 ? 255 + P1 : aggrCostLastPos[d - 1] + P1;
+				int l3 = d == dispRange - 1 ? 255 + P1 : aggrCostLastPos[d + 1] + P1;
+				int l4 = minAggrCostOfLastPos + P2;
+				aggrCostNowPos[d] = initCostNowPos[d] + min(min(l1, l2), min(l3, l4)) - minAggrCostOfLastPos;
+				minAggrCostOfNowPos = min(minAggrCostOfNowPos, aggrCostNowPos[d]);
+			}
+			minAggrCostOfLastPos = minAggrCostOfNowPos;
+		}
+	}
+}
+
+void costAggregationCol(unsigned char* initCost, unsigned char* aggrCost, int minDisparity, int maxDisparity, int P1, int initP2, bool bottomToTop) {
+	const int direction = bottomToTop ? 1 : -1;
+	const int width = image.width;
+	const int height = image.height;
+	const unsigned char* leftGray = image.leftGray;
+	int dispRange = maxDisparity - minDisparity;
+
+	for (int i = 0; i < width; i++)
+	{
+		unsigned char* initCostNowPos = bottomToTop ? initCost + i * dispRange :
+			initCost + ((height - 1) * width + i) * dispRange;
+		unsigned char* aggrCostNowPos = bottomToTop ? aggrCost + i * dispRange :
+			aggrCost + ((height - 1) * width + i) * dispRange;
+		unsigned char* imgNowPos = bottomToTop ? image.leftGray + i : image.leftGray + (height - 1) * width + i;
+		unsigned char* aggrCostLastPos, * imgLastPos;
+
+		memcpy(aggrCostNowPos, initCostNowPos, dispRange * sizeof(unsigned char));
+
+		unsigned char minAggrCostOfLastPos = 255;
+		for (int d = 0; d < dispRange; d++)
+			minAggrCostOfLastPos = min(minAggrCostOfLastPos, aggrCostNowPos[d]);
+
+		for (int j = 1; j < height; j++)
+		{
+			aggrCostLastPos = aggrCostNowPos;
+			imgLastPos = imgNowPos;
+			initCostNowPos += direction * width * dispRange;
+			aggrCostNowPos += direction * width * dispRange;
+			imgNowPos += direction * width;
+
+			int P2 = *imgNowPos == *imgLastPos ? initP2 : initP2 / abs(*imgNowPos - *imgLastPos);
+			unsigned char minAggrCostOfNowPos = 255;
+			for (int d = 0; d < dispRange; d++)
+			{
+				int l1 = aggrCostLastPos[d];
+				int l2 = d == 0 ? 255 +P1 : aggrCostLastPos[d - 1] + P1;
+				int l3 = d == dispRange - 1 ? 255 + P1 : aggrCostLastPos[d + 1] + P1;
+				int l4 = minAggrCostOfLastPos + P2;
 				aggrCostNowPos[d] = initCostNowPos[d] + min(min(l1, l2), min(l3, l4)) - minAggrCostOfLastPos;
 				minAggrCostOfNowPos = min(minAggrCostOfNowPos, aggrCostNowPos[d]);
 			}
@@ -296,17 +343,21 @@ int main() {
 	unsigned char* initCost = (unsigned char*)malloc(sizeof(unsigned char) * image.height * image.width * (maxDisparity - minDisparity));
 	unsigned char* aggrCost_1 = (unsigned char*)malloc(sizeof(unsigned char) * image.height * image.width * (maxDisparity - minDisparity));
 	unsigned char* aggrCost_2 = (unsigned char*)malloc(sizeof(unsigned char) * image.height * image.width * (maxDisparity - minDisparity));
+	unsigned char* aggrCost_3 = (unsigned char*)malloc(sizeof(unsigned char) * image.height * image.width * (maxDisparity - minDisparity));
+	unsigned char* aggrCost_4 = (unsigned char*)malloc(sizeof(unsigned char) * image.height * image.width * (maxDisparity - minDisparity));
 	unsigned short* aggrCost = (unsigned short*)malloc(sizeof(unsigned short) * image.height * image.width * (maxDisparity - minDisparity));
 	unsigned short* disparity = (unsigned short*)malloc(sizeof(unsigned short) * image.height * image.width);
 	//代价计算
 	computeCost(initCost, minDisparity, maxDisparity);
 	//代价聚合
-	//costAggregationRow(initCost, aggrCost_1, minDisparity, maxDisparity, 10, 150, true);
-	//costAggregationRow(initCost, aggrCost_2, minDisparity, maxDisparity, 10, 150, false);
+	costAggregationRow(initCost, aggrCost_1, minDisparity, maxDisparity, 10, 150, true);
+	costAggregationRow(initCost, aggrCost_2, minDisparity, maxDisparity, 10, 150, false);
+	costAggregationCol(initCost, aggrCost_3, minDisparity, maxDisparity, 10, 150, true);
+	costAggregationCol(initCost, aggrCost_4, minDisparity, maxDisparity, 10, 150, false);
 	int size = (maxDisparity - minDisparity) * image.width * image.height;
 	for (int i = 0; i < size; ++i) {
-		//aggrCost[i] = aggrCost_1[i] +aggrCost_2[i];
-		aggrCost[i] = initCost[i];
+		aggrCost[i] = aggrCost_1[i] + aggrCost_2[i] + aggrCost_3[i] + aggrCost_4[i];
+		//aggrCost[i] = initCost[i];
 	}
 
 
