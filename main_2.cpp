@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <malloc.h>
+#include <math.h>
 #include <opencv2/opencv.hpp>
 #include "opencv2/highgui/highgui.hpp"
 #define INVALID_PIXEL 0
@@ -16,28 +17,28 @@ typedef struct Image {
 	unsigned char* rightGray;
 }Image;
 Image image;
-Mat dispImage;				//æœ€ç»ˆæ˜¾ç¤ºçš„ç°åº¦å›¾åƒ
+Mat dispImage;				//×îÖÕÏÔÊ¾µÄ»Ò¶ÈÍ¼Ïñ
 
-unsigned char* initCost;	//åˆå§‹ä»£ä»·
-unsigned char* aggrCost_1;	
+unsigned char* initCost;	//³õÊ¼´ú¼Û
+unsigned char* aggrCost_1;
 unsigned char* aggrCost_2;
 unsigned char* aggrCost_3;
 unsigned char* aggrCost_4;
-unsigned short* aggrCost;	//èšåˆä»£ä»·
+unsigned short* aggrCost;	//¾ÛºÏ´ú¼Û
 
-unsigned short* disparity;	//è§†å·®
+float* disparity;	//ÊÓ²î
 int minDisparity = 0;
 int maxDisparity = 64;
 int P1 = 10;
 int initP2 = 150;
 
 /// <summary>
-/// censuså˜æ¢ï¼ˆ5x5ï¼‰
+/// census±ä»»£¨5x5£©
 /// </summary>
-/// <param name="input">è¾“å…¥å›¾åƒåƒç´ </param>
-/// <param name="output">è¾“å‡ºcensuså€¼</param>
-/// <param name="width">å›¾åƒå®½</param>
-/// <param name="height">å›¾åƒé«˜</param>
+/// <param name="input">ÊäÈëÍ¼ÏñÏñËØ</param>
+/// <param name="output">Êä³öcensusÖµ</param>
+/// <param name="width">Í¼Ïñ¿í</param>
+/// <param name="height">Í¼Ïñ¸ß</param>
 void censusTransform(const unsigned char* input, unsigned int* output, int width, int height)
 {
 	if (input == nullptr || output == nullptr || width <= 5 || height <= 5) {
@@ -45,15 +46,15 @@ void censusTransform(const unsigned char* input, unsigned int* output, int width
 		return;
 	}
 	unsigned char centerGray = 0;
-	//è®¡ç®—censuså€¼
+	//¼ÆËãcensusÖµ
 	for (int i = 2; i < height - 2; i++) {
 		for (int j = 2; j < width - 2; j++) {
 
-			//ä¸­å¿ƒåƒç´ çš„ç°åº¦å€¼
+			//ÖĞĞÄÏñËØµÄ»Ò¶ÈÖµ
 			centerGray = input[i * width + j];
 
-			// éå†5x5çª—å£å†…é‚»åŸŸåƒç´ ï¼Œè®¡ç®—censuså€¼ï¼ˆå¤§äºä¸­å¿ƒç‚¹çš„è®°ä¸º0ï¼Œå°äºè®°ä¸º1ï¼‰
-			unsigned int censusValue = 0u;//å25ä½æ˜¯censuså€¼
+			// ±éÀú5x5´°¿ÚÄÚÁÚÓòÏñËØ£¬¼ÆËãcensusÖµ£¨´óÓÚÖĞĞÄµãµÄ¼ÇÎª0£¬Ğ¡ÓÚ¼ÇÎª1£©
+			unsigned int censusValue = 0u;//ºó25Î»ÊÇcensusÖµ
 			for (int m = -2; m <= 2; m++) {
 				for (int n = -2; n <= 2; n++) {
 					censusValue <<= 1;
@@ -69,22 +70,22 @@ void censusTransform(const unsigned char* input, unsigned int* output, int width
 	}
 }
 /// <summary>
-/// è®¡ç®—xä¸yçš„Hammingè·ç¦»
+/// ¼ÆËãxÓëyµÄHamming¾àÀë
 /// </summary>
 /// <param name="x"></param>
 /// <param name="y"></param>
 /// <returns></returns>
 int hammingDistance(unsigned int x, unsigned int y)
 {
-	unsigned int distance = 0, val = x ^ y;//å¼‚æˆ–
-	//ç»Ÿè®¡valäºŒè¿›åˆ¶ä¸²ä¸­1çš„ä¸ªæ•°
+	unsigned int distance = 0, val = x ^ y;//Òì»ò
+	//Í³¼Æval¶ş½øÖÆ´®ÖĞ1µÄ¸öÊı
 	while (val) {
 		++distance;
 		val &= val - 1;
 	}
 	return distance;
 }
-//åŠ è½½å›¾ç‰‡
+//¼ÓÔØÍ¼Æ¬
 int loadImage(const char* leftImagePath, const char* rightImagePath) {
 	Mat imgLeft = imread(leftImagePath, IMREAD_GRAYSCALE);
 	Mat imgRight = imread(rightImagePath, IMREAD_GRAYSCALE);
@@ -98,12 +99,12 @@ int loadImage(const char* leftImagePath, const char* rightImagePath) {
 		return -1;
 	}
 
-	//å›¾åƒå®½é«˜ã€åƒç´ æ•°
+	//Í¼Ïñ¿í¸ß¡¢ÏñËØÊı
 	image.width = imgLeft.cols;
 	image.height = imgLeft.rows;
 	int pixelNum = image.width * image.height;
 
-	//å°†ç°åº¦ä¿¡æ¯ä¿å­˜åˆ°imageç»“æ„ä½“ä¸­
+	//½«»Ò¶ÈĞÅÏ¢±£´æµ½image½á¹¹ÌåÖĞ
 	image.leftGray = (unsigned char*)malloc(sizeof(unsigned char) * pixelNum);
 	image.rightGray = (unsigned char*)malloc(sizeof(unsigned char) * pixelNum);
 	if (image.leftGray == nullptr || image.rightGray == nullptr) {
@@ -119,15 +120,15 @@ int loadImage(const char* leftImagePath, const char* rightImagePath) {
 }
 
 
-//è®¡ç®—åˆå§‹ä»£ä»·
+//¼ÆËã³õÊ¼´ú¼Û
 void computeCost() {
 	const int width = image.width;
 	const int height = image.height;
 	const unsigned char* leftGray = image.leftGray;
 	const unsigned char* rightGray = image.rightGray;
-	const int pixelNum = height * width;	//åƒç´ æ•°
+	const int pixelNum = height * width;	//ÏñËØÊı
 
-	//censuså˜æ¢
+	//census±ä»»
 	unsigned int* censusLeft = (unsigned int*)malloc(sizeof(unsigned int) * pixelNum);
 	unsigned int* censusRight = (unsigned int*)malloc(sizeof(unsigned int) * pixelNum);
 	if (censusLeft == NULL || censusRight == NULL) {
@@ -137,8 +138,8 @@ void computeCost() {
 	censusTransform(leftGray, censusLeft, width, height);
 	censusTransform(rightGray, censusRight, width, height);
 
-	//è®¡ç®—åˆå§‹ä»£ä»·
-	int dispRange = maxDisparity - minDisparity;	//è§†å·®èŒƒå›´
+	//¼ÆËã³õÊ¼´ú¼Û
+	int dispRange = maxDisparity - minDisparity;	//ÊÓ²î·¶Î§
 	for (int i = 0; i < height; ++i) {
 		for (int j = 0; j < width; ++j) {
 
@@ -152,7 +153,7 @@ void computeCost() {
 					continue;
 				}
 
-				//è®¡ç®—åˆå§‹åŒ¹é…ä»£ä»·
+				//¼ÆËã³õÊ¼Æ¥Åä´ú¼Û
 				const unsigned int censusRightValue = censusRight[i * width + j - m];
 				initCost[index] = hammingDistance(censusLeftValue, censusRightValue);
 			}
@@ -164,7 +165,7 @@ void computeCost() {
 	free(censusRight);
 }
 
-//ä»£ä»·èšåˆ--å·¦å³æ–¹å‘ä¸Š
+//´ú¼Û¾ÛºÏ--×óÓÒ·½ÏòÉÏ
 void costAggregationRow(bool leftToRight) {
 	const int direction = leftToRight ? 1 : -1;
 	const int width = image.width;
@@ -199,7 +200,7 @@ void costAggregationRow(bool leftToRight) {
 			for (int d = 0; d < dispRange; d++)
 			{
 				int l1 = aggrCostLastPos[d];
-				int l2 = d == 0 ? 255 + P1: aggrCostLastPos[d - 1] + P1;
+				int l2 = d == 0 ? 255 + P1 : aggrCostLastPos[d - 1] + P1;
 				int l3 = d == dispRange - 1 ? 255 + P1 : aggrCostLastPos[d + 1] + P1;
 				int l4 = minAggrCostOfLastPos + initP2 / (abs(*imgNowPos - *imgLastPos) + 1);
 				aggrCostNowPos[d] = initCostNowPos[d] + min(min(l1, l2), min(l3, l4)) - minAggrCostOfLastPos;
@@ -255,7 +256,7 @@ void costAggregationCol(bool bottomToTop) {
 	}
 }
 
-//è§†å·®è®¡ç®—--åœ¨è§†å·®èŒƒå›´å†…é€‰æ‹©ä¸€ä¸ªä»£ä»·å€¼æœ€å°çš„è§†å·®ä½œä¸ºåƒç´ çš„æœ€ç»ˆè§†å·®
+//ÊÓ²î¼ÆËã--ÔÚÊÓ²î·¶Î§ÄÚÑ¡ÔñÒ»¸ö´ú¼ÛÖµ×îĞ¡µÄÊÓ²î×÷ÎªÏñËØµÄ×îÖÕÊÓ²î
 void computeDisparity() {
 	int dispRange = maxDisparity - minDisparity;
 
@@ -263,38 +264,51 @@ void computeDisparity() {
 	const int height = image.height;
 	const unsigned char* leftGray = image.leftGray;
 	const unsigned char* rightGray = image.rightGray;
-	const int pixelNum = height * width;	//åƒç´ æ•°
+	const int pixelNum = height * width;	//ÏñËØÊı
 
 	for (int i = 0; i < height; ++i) {
 		for (int j = 0; j < width; ++j) {
-			//éå†è§†å·®èŒƒå›´å†…çš„æ‰€æœ‰ä»£ä»·å€¼ï¼Œå–ä»£ä»·å€¼æœ€å°çš„è§†å·®ä½œä¸ºåƒç´ çš„æœ€ç»ˆè§†å·®
-			unsigned int min = 0xfffffff;
-			unsigned int max = 0;
-			unsigned int bestDisparity = 0;
+			//±éÀúÊÓ²î·¶Î§ÄÚµÄËùÓĞ´ú¼ÛÖµ£¬È¡´ú¼ÛÖµ×îĞ¡µÄÊÓ²î×÷ÎªÏñËØµÄ×îÖÕÊÓ²î
+			//±éÀúÊÓ²î·¶Î§ÄÚµÄËùÓĞ´ú¼ÛÖµ£¬È¡´ú¼ÛÖµ×îĞ¡µÄÊÓ²î×÷ÎªÏñËØµÄ×îÖÕÊÓ²î
+			unsigned short minCost = 0x7fff;
+			unsigned short secondMinCost = 0x7fff;
+			int bestDisparity = 0;
 			for (int m = minDisparity; m < maxDisparity; ++m) {
 				int index = dispRange * (i * width + j) + (m - minDisparity);
-				if (aggrCost[index] < min) {
-					min = aggrCost[index];
+				if (aggrCost[index] < minCost) {
+					minCost = aggrCost[index];
 					bestDisparity = m;
-				}
-				if (aggrCost[index] > max) {
-					max = aggrCost[index];
 				}
 			}
 
-			//å¦‚æœè§†å·®èŒƒå›´å†…çš„æ‰€æœ‰ä»£ä»·å€¼å‡ç›¸åŒï¼Œåˆ™è¯¥åƒç´ æ— æ•ˆ
-			if (max == min) {
+			for (int m = minDisparity; m < maxDisparity; m++)
+			{
+				int index = dispRange * (i * width + j) + (m - minDisparity);
+				if (aggrCost[index] < secondMinCost && m != bestDisparity)
+					secondMinCost = aggrCost[index];
+			}
+
+			if (secondMinCost - minCost < (unsigned short)(minCost * 0.5))
+			{
 				disparity[i * width + j] = INVALID_PIXEL;
+				continue;
 			}
-			else {//å–ä»£ä»·å€¼æœ€å°çš„è§†å·®ä½œä¸ºåƒç´ çš„æœ€ç»ˆè§†å·®
-				disparity[i * width + j] = bestDisparity;
+			if (bestDisparity == minDisparity || bestDisparity == maxDisparity)
+			{
+				disparity[i * width + j] = INVALID_PIXEL;
+				continue;
 			}
+			//È¡´ú¼ÛÖµ×îĞ¡µÄÊÓ²î×÷ÎªÏñËØµÄ×îÖÕÊÓ²î
+			unsigned short cost_1 = aggrCost[dispRange * (i * width + j) + bestDisparity - 1 - minDisparity];
+			unsigned short cost_2 = aggrCost[dispRange * (i * width + j) + bestDisparity + 1 - minDisparity];
+			unsigned short denom = max(1, cost_1 + cost_2 - minCost * 2);
+			disparity[i * width + j] = bestDisparity + (cost_1 - cost_2) / (2.0 * denom);
 		}
 	}
 }
 
-//n*nä¸­å€¼æ»¤æ³¢ï¼ˆnä¸ºå¥‡æ•°ï¼‰
-void medianFilter(unsigned char* grayInput, unsigned char* grayOutput, int width, int height, int n){
+//n*nÖĞÖµÂË²¨£¨nÎªÆæÊı£©
+void medianFilter(unsigned char* grayInput, unsigned char* grayOutput, int width, int height, int n) {
 	int maskSize = n * n;
 	int* mask = (int*)malloc(sizeof(int) * maskSize);
 	if (mask == NULL) {
@@ -307,10 +321,10 @@ void medianFilter(unsigned char* grayInput, unsigned char* grayOutput, int width
 	}
 	memcpy(grayOutput, grayInput, width * height * sizeof(unsigned char));
 	int k = n / 2;
-	for (int i = k; i < height-k; ++i) {
-		for (int j = k; j < width-k; ++j) {
+	for (int i = k; i < height - k; ++i) {
+		for (int j = k; j < width - k; ++j) {
 			int index = 0;
-			//ç»Ÿè®¡æ©è†œçª—å£ä¸­çš„å€¼
+			//Í³¼ÆÑÚÄ¤´°¿ÚÖĞµÄÖµ
 			for (int p = -k; p <= k; ++p) {
 				for (int q = -k; q <= k; ++q) {
 					int row = i + p;
@@ -318,7 +332,7 @@ void medianFilter(unsigned char* grayInput, unsigned char* grayOutput, int width
 					mask[index++] = grayInput[row * width + col];
 				}
 			}
-			//æ’åº
+			//ÅÅĞò
 			std::sort(mask, mask + n * n);
 			grayOutput[i * width + j] = mask[maskSize / 2];
 		}
@@ -326,7 +340,7 @@ void medianFilter(unsigned char* grayInput, unsigned char* grayOutput, int width
 	free(mask);
 }
 
-//æ ¹æ®è§†å·®ç”Ÿæˆç°åº¦å›¾
+//¸ù¾İÊÓ²îÉú³É»Ò¶ÈÍ¼
 void convertToImage() {
 	const int width = image.width;
 	const int height = image.height;
@@ -339,14 +353,14 @@ void convertToImage() {
 				dispImage.data[i * width + j] = 0;
 			}
 			else {
-				//å°†dispæ˜ å°„åˆ°åŒºé—´[0,255]
+				//½«dispÓ³Éäµ½Çø¼ä[0,255]
 				dispImage.data[i * width + j] = static_cast<uchar>(((float)disp - minDisparity) / (dispRange) * 255);
 			}
 		}
 	}
 }
 
-//æ˜¾ç¤ºè§†å·®å›¾
+//ÏÔÊ¾ÊÓ²îÍ¼
 void display() {
 	const int width = image.width;
 	const int height = image.height;
@@ -354,11 +368,11 @@ void display() {
 	Mat dispMedianImage = cv::Mat(height, width, CV_8UC1);
 
 	medianFilter(dispImage.data, dispMedianImage.data, width, height, 3);
-	cv::imshow("è§†å·®å›¾1", dispImage);
-	cv::imshow("è§†å·®å›¾2", dispMedianImage);
+	cv::imshow("ÊÓ²îÍ¼1", dispImage);
+	cv::imshow("ÊÓ²îÍ¼2", dispMedianImage);
 	cv::waitKey(0);
 }
-//åˆå§‹åŒ–
+//³õÊ¼»¯
 void init(const char* leftImagePath, const char* rightImagePath) {
 	loadImage(leftImagePath, rightImagePath);
 	initCost = (unsigned char*)malloc(sizeof(unsigned char) * image.height * image.width * (maxDisparity - minDisparity));
@@ -367,9 +381,9 @@ void init(const char* leftImagePath, const char* rightImagePath) {
 	aggrCost_3 = (unsigned char*)malloc(sizeof(unsigned char) * image.height * image.width * (maxDisparity - minDisparity));
 	aggrCost_4 = (unsigned char*)malloc(sizeof(unsigned char) * image.height * image.width * (maxDisparity - minDisparity));
 	aggrCost = (unsigned short*)malloc(sizeof(unsigned short) * image.height * image.width * (maxDisparity - minDisparity));
-	disparity = (unsigned short*)malloc(sizeof(unsigned short) * image.height * image.width);
+	disparity = (float*)malloc(sizeof(float) * image.height * image.width);
 }
-//é‡Šæ”¾å†…å­˜
+//ÊÍ·ÅÄÚ´æ
 void destroy() {
 	if (image.leftGray) {
 		free(image.leftGray);
@@ -388,9 +402,9 @@ void destroy() {
 
 int main() {
 	init("G:\\Other\\image\\left1.png", "G:\\Other\\image\\right1.png");
-	//ä»£ä»·è®¡ç®—
+	//´ú¼Û¼ÆËã
 	computeCost();
-	//ä»£ä»·èšåˆ
+	//´ú¼Û¾ÛºÏ
 	costAggregationRow(true);
 	costAggregationRow(false);
 	costAggregationCol(true);
@@ -399,9 +413,9 @@ int main() {
 	for (int i = 0; i < size; ++i) {
 		aggrCost[i] = aggrCost_1[i] + aggrCost_2[i] + aggrCost_3[i] + aggrCost_4[i];
 	}
-	//è§†å·®è®¡ç®—
+	//ÊÓ²î¼ÆËã
 	computeDisparity();
-	//ç”Ÿæˆç°åº¦å›¾
+	//Éú³É»Ò¶ÈÍ¼
 	convertToImage();
 	display();
 	destroy();
