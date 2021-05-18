@@ -16,6 +16,7 @@ typedef struct Image {
 	unsigned char* rightGray;
 }Image;
 Image image;
+Mat dispImage;				//最终显示的灰度图像
 
 unsigned char* initCost;	//初始代价
 unsigned char* aggrCost_1;	
@@ -292,11 +293,44 @@ void computeDisparity() {
 	}
 }
 
-//显示视差图
-void display() {
+//n*n中值滤波（n为奇数）
+void medianFilter(unsigned char* grayInput, unsigned char* grayOutput, int width, int height, int n){
+	int maskSize = n * n;
+	int* mask = (int*)malloc(sizeof(int) * maskSize);
+	if (mask == NULL) {
+		printf("Error in medianFilter: Malloc Failure\n");
+		return;
+	}
+	if (n % 2 == 0 || n <= 1) {
+		printf("Error in medianFilter: n % 2 == 0 || n <= 1\n");
+		return;
+	}
+	memcpy(grayOutput, grayInput, width * height * sizeof(unsigned char));
+	int k = n / 2;
+	for (int i = k; i < height-k; ++i) {
+		for (int j = k; j < width-k; ++j) {
+			int index = 0;
+			//统计掩膜窗口中的值
+			for (int p = -k; p <= k; ++p) {
+				for (int q = -k; q <= k; ++q) {
+					int row = i + p;
+					int col = j + q;
+					mask[index++] = grayInput[row * width + col];
+				}
+			}
+			//排序
+			std::sort(mask, mask + n * n);
+			grayOutput[i * width + j] = mask[maskSize / 2];
+		}
+	}
+	free(mask);
+}
+
+//根据视差生成灰度图
+void convertToImage() {
 	const int width = image.width;
 	const int height = image.height;
-	Mat dispImage = cv::Mat(height, width, CV_8UC1);
+	dispImage = cv::Mat(height, width, CV_8UC1);
 	int dispRange = maxDisparity - minDisparity;
 	for (int i = 0; i < height; i++) {
 		for (int j = 0; j < width; j++) {
@@ -310,7 +344,18 @@ void display() {
 			}
 		}
 	}
-	cv::imshow("视差图", dispImage);
+}
+
+//显示视差图
+void display() {
+	const int width = image.width;
+	const int height = image.height;
+
+	Mat dispMedianImage = cv::Mat(height, width, CV_8UC1);
+
+	medianFilter(dispImage.data, dispMedianImage.data, width, height, 3);
+	cv::imshow("视差图1", dispImage);
+	cv::imshow("视差图2", dispMedianImage);
 	cv::waitKey(0);
 }
 //初始化
@@ -356,7 +401,8 @@ int main() {
 	}
 	//视差计算
 	computeDisparity();
-
+	//生成灰度图
+	convertToImage();
 	display();
 	destroy();
 	return 0;
