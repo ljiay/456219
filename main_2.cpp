@@ -431,6 +431,7 @@ void LRCheck()
 		}
 }
 
+
 //视差填充
 void fillHoles() {
 	const int width = image.width;
@@ -442,10 +443,27 @@ void fillHoles() {
 	float areaDisp[8];
 	//有效像素数量
 	int validNum;
-
+	//两次循环后还剩下的无效像素点
+	InvalidArea remainArea;
+	remainArea.point = (InvalidPoint*)malloc(sizeof(InvalidPoint) * width * height);
+	remainArea.num = 0;
 	for (int k = 0; k < 3; ++k) {
 
 		InvalidArea* area = (k == 0) ? (&occlusions) : (&mismatches);
+
+		//处理前两次循环未处理的无效像素点
+		if (k == 2) {
+			for (int i = 0; i < height; ++i) {
+				for (int j = 0; j < width; ++j) {
+					if (disparity[i*width+j] == INVALID_PIXEL) {
+						remainArea.point[remainArea.num++].x = j;
+						remainArea.point[remainArea.num++].y = i;
+					}
+				}
+			}
+			area = &remainArea;
+		}
+
 		for (int i = 0; i < area->num; ++i) {
 			int x = area->point[i].x;
 			int y = area->point[i].y;
@@ -472,22 +490,24 @@ void fillHoles() {
 			}
 			//排序
 			std::sort(areaDisp, areaDisp + validNum);
+			//遮挡区,取次小值
 			if (k == 0) {
-				//取次小值
 				if (validNum > 1) {
-
+					disparity[x * width + y] = areaDisp[1];
 				}
 				else {
-
+					disparity[x * width + y] = areaDisp[0];
 				}
 			}
-			else {
-
+			else {	//误匹配区,取中值
+				disparity[x * width + y] = areaDisp[validNum/2];
 			}
 		}
 
 	}
+	free(remainArea.point);
 }
+
 
 //根据视差生成灰度图
 void convertToImage() {
