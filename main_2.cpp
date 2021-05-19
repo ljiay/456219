@@ -159,7 +159,7 @@ void computeCost() {
 				int index = i * width * dispRange + j * dispRange + (m - minDisparity);
 
 				if (j - m < 0 || j - m >= width) {
-					initCost[index] = 128;
+					initCost[index] = 127;
 					continue;
 				}
 
@@ -299,7 +299,7 @@ void computeDisparity() {
 					secondMinCost = aggrCost[index];
 			}
 			//唯一性约束 次最小和最小代价的相对差值小于阈值，则无效
-			if (secondMinCost - minCost <= (unsigned short)(minCost * 0.05))
+			/*if (secondMinCost - minCost <= (unsigned short)(minCost * 0.05))
 			{
 				disparity[i * width + j] = INVALID_PIXEL;
 				continue;
@@ -310,6 +310,7 @@ void computeDisparity() {
 				disparity[i * width + j] = INVALID_PIXEL;
 				continue;
 			}
+			*/
 			//子像素拟合
 			unsigned short cost_1 = aggrCost[dispRange * (i * width + j) + bestDisparity - 1 - minDisparity];
 			unsigned short cost_2 = aggrCost[dispRange * (i * width + j) + bestDisparity + 1 - minDisparity];
@@ -416,18 +417,51 @@ void medianFilter(unsigned char* grayInput, unsigned char* grayOutput, int width
 //一致性检查
 void LRCheck()
 {
-	int dispRange = maxDisparity - minDisparity;
-
 	const int width = image.width;
 	const int height = image.height;
-	const unsigned char* leftGray = image.leftGray;
-	const unsigned char* rightGray = image.rightGray;
-	const int pixelNum = height * width;	//像素数
 
 	for (int i = 0; i < height; i++)
 		for (int j = 0; j < width; j++)
 		{
-
+			if (disparity[i * width + j] == INVALID_PIXEL)
+			{
+				mismatches.point[mismatches.num++].x = j;
+				mismatches.point[mismatches.num].y = i;
+				continue;
+			}
+			int rightCol = (int)(j - disparity[i * width + j] + 0.5);
+			if (rightCol < 0 || rightCol >= width)
+			{
+				disparity[i * width + j] = INVALID_PIXEL;
+				mismatches.point[mismatches.num++].x = j;
+				mismatches.point[mismatches.num].y = i;
+			}
+			else
+			{
+				if (abs(disparity[i * width + j] - disparityRight[i * width + rightCol]) > 1.0)
+				{
+					int rightToLeftCol = (int)(rightCol + disparityRight[i * width + rightCol] + 0.5);
+					if (rightToLeftCol >= 0 && rightToLeftCol < width)
+					{
+						if (disparity[i * width + rightToLeftCol] > disparity[i * width + j])
+						{
+							occlusions.point[occlusions.num++].x = j;
+							occlusions.point[occlusions.num].y = i;
+						}
+						else
+						{
+							mismatches.point[mismatches.num++].x = j;
+							mismatches.point[mismatches.num].y = i;
+						}
+					}
+					else
+					{
+						mismatches.point[mismatches.num++].x = j;
+						mismatches.point[mismatches.num].y = i;
+					}
+					disparity[i * width + j] = INVALID_PIXEL;
+				}
+			}
 		}
 }
 
@@ -457,7 +491,7 @@ void fillHoles() {
 				for (int j = 0; j < width; ++j) {
 					if (disparity[i*width+j] == INVALID_PIXEL) {
 						remainArea.point[remainArea.num++].x = j;
-						remainArea.point[remainArea.num++].y = i;
+						remainArea.point[remainArea.num].y = i;
 					}
 				}
 			}
@@ -479,8 +513,8 @@ void fillHoles() {
 					if (px >= width || px < 0 || py >= height || py < 0) {
 						break;
 					}
-					if (disparity[px * width + py] != INVALID_PIXEL) {
-						areaDisp[validNum++] = disparity[px * width + py];
+					if (disparity[py * width + px] != INVALID_PIXEL) {
+						areaDisp[validNum++] = disparity[py * width + px];
 						break;
 					}
 				}
@@ -493,21 +527,20 @@ void fillHoles() {
 			//遮挡区,取次小值
 			if (k == 0) {
 				if (validNum > 1) {
-					disparity[x * width + y] = areaDisp[1];
+					disparity[y * width + x] = areaDisp[1];
 				}
 				else {
-					disparity[x * width + y] = areaDisp[0];
+					disparity[y * width + x] = areaDisp[0];
 				}
 			}
 			else {	//误匹配区,取中值
-				disparity[x * width + y] = areaDisp[validNum/2];
+				disparity[y * width + x] = areaDisp[validNum/2];
 			}
 		}
 
 	}
 	free(remainArea.point);
 }
-
 
 //根据视差生成灰度图
 void convertToImage() {
@@ -596,8 +629,9 @@ int main() {
 	//视差计算
 	computeDisparity();
 	//
-	computeDisparityRight();
-	LRCheck();
+	//computeDisparityRight();
+	//LRCheck();
+	//fillHoles();
 	//生成灰度图
 	convertToImage();
 	display();
