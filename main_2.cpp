@@ -27,6 +27,7 @@ unsigned char* aggrCost_4;
 unsigned short* aggrCost;	//聚合代价
 
 float* disparity;	//视差
+float* disparityRight;
 int minDisparity = 0;
 int maxDisparity = 64;
 int P1 = 10;
@@ -288,7 +289,7 @@ void computeDisparity() {
 					secondMinCost = aggrCost[index];
 			}
 
-			if (secondMinCost - minCost < (unsigned short)(minCost * 0.5))
+			if (secondMinCost - minCost <= (unsigned short)(minCost * 0.05))
 			{
 				disparity[i * width + j] = INVALID_PIXEL;
 				continue;
@@ -305,6 +306,68 @@ void computeDisparity() {
 			disparity[i * width + j] = bestDisparity + (cost_1 - cost_2) / (2.0 * denom);
 		}
 	}
+}
+
+void computeDisparityRight()
+{
+	int dispRange = maxDisparity - minDisparity;
+
+	const int width = image.width;
+	const int height = image.height;
+	const unsigned char* leftGray = image.leftGray;
+	const unsigned char* rightGray = image.rightGray;
+	const int pixelNum = height * width;	//像素数
+
+	unsigned short* costLocal = (unsigned short*)malloc(dispRange * sizeof(unsigned short));
+
+	for (int i = 0; i < height; i++)
+		for (int j = 0; j < width; j++)
+		{
+			unsigned short minCost = 0x7fff;
+			unsigned short secondMinCost = 0x7fff;
+			int bestDisparity = 0;
+
+			for (int d = minDisparity; d < maxDisparity; d++)
+			{
+				int leftCol = j + d, index = d - minDisparity;
+				if (leftCol >= 0 && leftCol < width)
+				{
+					costLocal[index] = aggrCost[(i * width + leftCol) * dispRange + index];
+					if (minCost > costLocal[index])
+					{
+						minCost = costLocal[index];
+						bestDisparity = d;
+					}
+				}
+				else costLocal[index] = 0x7fff;
+			}
+
+			for (int d = minDisparity; d < maxDisparity; d++)
+			{
+				int index = d - minDisparity;
+				if (secondMinCost > costLocal[index] && d != bestDisparity)
+					secondMinCost = costLocal[index];
+			}
+
+			if (secondMinCost - minCost <= minCost * 0.05)
+			{
+				disparityRight[i * width + j] = INVALID_PIXEL;
+				continue;
+			}
+
+			if (bestDisparity == minDisparity || bestDisparity == maxDisparity - 1)
+			{
+				disparityRight[i + width + j] = INVALID_PIXEL;
+				continue;
+			}
+
+			unsigned short cost_1 = costLocal[bestDisparity - 1 - minDisparity];
+			unsigned short cost_2 = costLocal[bestDisparity + 1 - minDisparity];
+			unsigned short denom = max(1, cost_1 + cost_2 - 2 * minCost);
+			disparityRight[i * width + j] = bestDisparity + (cost_1 - cost_2) / (2.0 * denom);
+		}
+
+	free(costLocal);
 }
 
 //n*n中值滤波（n为奇数）
@@ -338,6 +401,23 @@ void medianFilter(unsigned char* grayInput, unsigned char* grayOutput, int width
 		}
 	}
 	free(mask);
+}
+
+void LRCheck()
+{
+	int dispRange = maxDisparity - minDisparity;
+
+	const int width = image.width;
+	const int height = image.height;
+	const unsigned char* leftGray = image.leftGray;
+	const unsigned char* rightGray = image.rightGray;
+	const int pixelNum = height * width;	//像素数
+
+	for (int i = 0; i < height; i++)
+		for (int j = 0; j < width; j++)
+		{
+
+		}
 }
 
 //根据视差生成灰度图
@@ -382,6 +462,7 @@ void init(const char* leftImagePath, const char* rightImagePath) {
 	aggrCost_4 = (unsigned char*)malloc(sizeof(unsigned char) * image.height * image.width * (maxDisparity - minDisparity));
 	aggrCost = (unsigned short*)malloc(sizeof(unsigned short) * image.height * image.width * (maxDisparity - minDisparity));
 	disparity = (float*)malloc(sizeof(float) * image.height * image.width);
+	disparityRight = (float*)malloc(sizeof(float) * image.height * image.width);
 }
 //释放内存
 void destroy() {
@@ -398,6 +479,7 @@ void destroy() {
 	free(aggrCost_3);
 	free(aggrCost_4);
 	free(disparity);
+	free(disparityRight);
 }
 
 int main() {
@@ -415,6 +497,8 @@ int main() {
 	}
 	//视差计算
 	computeDisparity();
+	computeDisparityRight();
+	LRCheck();
 	//生成灰度图
 	convertToImage();
 	display();
